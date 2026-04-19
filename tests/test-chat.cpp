@@ -3448,6 +3448,74 @@ static void test_template_output_peg_parsers(bool detailed_debug) {
             .expect(message_assist_call)
             .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
             .run();
+
+        // Parallel tool calls (two different tools) inside one wrapper
+        tst.test(
+               "</think><minimax:tool_call>\n"
+               "<invoke name=\"special_function\">\n<parameter name=\"arg1\">1</parameter>\n</invoke>\n"
+               "<invoke name=\"python\">\n<parameter name=\"code\">print('hey')</parameter>\n</invoke>\n"
+               "</minimax:tool_call>")
+            .tools({ special_function_tool, python_tool })
+            .parallel_tool_calls(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_with_reasoning_content_and_multiple_tool_calls(
+                "", "",
+                {
+                    { "special_function", R"x({"arg1": 1})x" },
+                    { "python", R"x({"code": "print('hey')"})x" },
+                }))
+            .run();
+
+        // String parameter with embedded XML-ish content
+        tst.test(
+               "</think><minimax:tool_call>\n<invoke name=\"html\">\n"
+               "<parameter name=\"markup\"><div><script>alert('x')</script></div></parameter>\n"
+               "</invoke>\n</minimax:tool_call>")
+            .tools({ html_tool })
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_with_tool_calls(
+                "html", R"x({"markup": "<div><script>alert('x')</script></div>"})x"))
+            .run();
+
+        // Multi-line string parameter value
+        tst.test(
+               "</think><minimax:tool_call>\n<invoke name=\"python\">\n"
+               "<parameter name=\"code\">import os\nfor k in os.environ:\n    print(k)</parameter>\n"
+               "</invoke>\n</minimax:tool_call>")
+            .tools({ python_tool })
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_with_tool_calls(
+                "python", R"x({"code": "import os\nfor k in os.environ:\n    print(k)"})x"))
+            .run();
+
+        // Tool with two integer parameters
+        tst.test(
+               "</think><minimax:tool_call>\n<invoke name=\"special_function_with_opt\">\n"
+               "<parameter name=\"arg1\">1</parameter>\n"
+               "<parameter name=\"arg2\">42</parameter>\n"
+               "</invoke>\n</minimax:tool_call>")
+            .tools({ special_function_tool_with_optional_param })
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_with_tool_calls(
+                "special_function_with_opt", R"x({"arg1": 1, "arg2": 42})x"))
+            .run();
+
+        // Parallel calls to the same tool inside one wrapper
+        tst.test(
+               "</think><minimax:tool_call>\n"
+               "<invoke name=\"python\">\n<parameter name=\"code\">print('a')</parameter>\n</invoke>\n"
+               "<invoke name=\"python\">\n<parameter name=\"code\">print('b')</parameter>\n</invoke>\n"
+               "</minimax:tool_call>")
+            .tools({ python_tool })
+            .parallel_tool_calls(true)
+            .reasoning_format(COMMON_REASONING_FORMAT_DEEPSEEK)
+            .expect(message_with_reasoning_content_and_multiple_tool_calls(
+                "", "",
+                {
+                    { "python", R"x({"code": "print('a')"})x" },
+                    { "python", R"x({"code": "print('b')"})x" },
+                }))
+            .run();
     }
 
     // NVIDIA-Nemotron-Nano-v2 tests - <TOOLCALL>...</TOOLCALL> format
